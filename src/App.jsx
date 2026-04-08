@@ -65,7 +65,7 @@ function App() {
       value: grouped[person].total / grouped[person].count
     }));
 
-    // Distribución resolución (pie)
+    // Distribución resolución
     const buckets = {
       "0-24h": 0,
       "24-48h": 0,
@@ -85,7 +85,7 @@ function App() {
       value: buckets[key]
     }));
 
-    // 🔥 NUEVO: Distribución primera respuesta
+    // Distribución primera respuesta
     const firstResponseBuckets = {
       "< 1h": 0,
       "1 - 4h": 0,
@@ -176,34 +176,34 @@ function App() {
       background: "linear-gradient(135deg, #eef2ff, #f8fafc)",
       minHeight: "100vh"
     }}>
-      <h1>📊 Dashboard Jira PRO</h1>
+      <h1 style={{ color: "#1e3a8a" }}>
+  📊 Dashboard Jira PRO
+</h1>
 
       {/* KPIs */}
       <div style={{ display: "flex", gap: 20, marginBottom: 30 }}>
         <div style={cardStyle}>
           <h4>📂 Tickets</h4>
-          <h2 style={{ color: "#2563eb", fontWeight: "bold" }}>
-            {metrics.tickets}
-          </h2>
+          <h2 style={{ color: "#2563eb" }}>{metrics.tickets}</h2>
         </div>
 
         <div style={cardStyle}>
           <h4>⏱️ Resolución</h4>
-          <h2 style={{ color: "#2563eb", fontWeight: "bold" }}>
+          <h2 style={{ color: "#2563eb" }}>
             {metrics.avg_resolution?.toFixed(2)}h
           </h2>
         </div>
 
         <div style={cardStyle}>
           <h4>🚀 Tiempo de primera respuesta</h4>
-          <h2 style={{ color: "#2563eb", fontWeight: "bold" }}>
+          <h2 style={{ color: "#2563eb" }}>
             {metrics.avg_first_response?.toFixed(2)}h
           </h2>
         </div>
       </div>
 
       {/* Gráfica por persona */}
-      <h2 style={{ marginTop: 40 }}>
+      <h2 style={{ color: "#1e3a8a", marginTop: 40 }}>
         👥 Tiempo promedio de resolución por persona
       </h2>
 
@@ -214,28 +214,23 @@ function App() {
         margin={{ top: 20, right: 30, left: 20, bottom: 150 }}
       >
         <CartesianGrid strokeDasharray="3 3" />
-        <XAxis
-          dataKey="name"
-          angle={-90}
-          textAnchor="end"
-          interval={0}
-        />
+        <XAxis dataKey="name" angle={-90} textAnchor="end" interval={0} />
         <YAxis />
         <Tooltip />
         <Bar dataKey="value" radius={[8, 8, 0, 0]}>
           {byPerson.map((entry, index) => {
             let color = "#6366f1";
-
             if (entry.value === maxValue) color = "#fbcfe8";
             if (entry.value === minValue) color = "#bbf7d0";
-
-            return <Cell key={`cell-${index}`} fill={color} />;
+            return <Cell key={index} fill={color} />;
           })}
         </Bar>
       </BarChart>
 
       {/* Donut */}
-      <h2>📊 Distribución de tiempos</h2>
+      <h2 style={{ color: "#1e3a8a", marginTop: 40 }}>
+        📊 Distribución de tiempos
+      </h2>
 
       <PieChart width={500} height={350}>
         <Pie
@@ -249,15 +244,15 @@ function App() {
           }
         >
           {pieData.map((entry, index) => (
-            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+            <Cell key={index} fill={COLORS[index % COLORS.length]} />
           ))}
         </Pie>
-        <Legend verticalAlign="bottom" height={36} />
+        <Legend verticalAlign="bottom" />
         <Tooltip />
       </PieChart>
 
-      {/* NUEVA GRÁFICA */}
-      <h2 style={{ marginTop: 40 }}>
+      {/* Primera respuesta */}
+      <h2 style={{ color: "#1e3a8a", marginTop: 40 }}>
         🚀 Distribución del tiempo de primera respuesta
       </h2>
 
@@ -270,7 +265,7 @@ function App() {
       </BarChart>
 
       {/* Insights */}
-      <h2>🚨 Insights</h2>
+      <h2 style={{ marginTop: 40 }}>🚨 Insights</h2>
 
       <ul>
         {insights.map((item, index) => (
