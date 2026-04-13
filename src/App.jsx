@@ -17,7 +17,7 @@ function App() {
   }, []);
 
   const loadExcel = async () => {
-    const response = await fetch("/Week30.3.xlsx");
+    const response = await fetch("/Week 6.4.xlsx");
     const data = await response.arrayBuffer();
 
     const workbook = XLSX.read(data);
