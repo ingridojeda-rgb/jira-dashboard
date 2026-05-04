@@ -14,7 +14,7 @@ function App() {
   const [currentWeek, setCurrentWeek] = useState("");
 
   const archivos = [
-    "/Week 20.4.xlsx" 
+    "/Week 27.4.xlsx" 
   ];
 
   useEffect(() => {
