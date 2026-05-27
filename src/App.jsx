@@ -6,6 +6,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [currentWeek, setCurrentWeek] = useState("");
 
+  // Nombre del archivo actualizado
   const archivos = ["/Week18.5.xlsx"];
 
   useEffect(() => {
@@ -13,11 +14,14 @@ function App() {
       try {
         const ultimaRuta = archivos[archivos.length - 1];
         setCurrentWeek(ultimaRuta.replace("/", "").replace(".xlsx", ""));
-        const response = await fetch(ultimaRuta);
+        
+        // Agregamos un parámetro de tiempo para evitar la caché del navegador
+        const response = await fetch(`${ultimaRuta}?v=${new Date().getTime()}`);
         const arrayBuffer = await response.arrayBuffer();
         const workbook = XLSX.read(arrayBuffer);
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData = XLSX.utils.sheet_to_json(sheet);
+        
         procesarDatos(jsonData);
       } catch (error) {
         console.error("Error al cargar el archivo:", error);
@@ -37,91 +41,7 @@ function App() {
       : (sorted[mid - 1] + sorted[mid]) / 2;
   };
 
-const procesarDatos = (jsonData) => {
-    const agentStats = {};
-
-    const limpiarTiempo = (valor) => {
-      if (valor === undefined || valor === null || valor === "") return 0;
-      let texto = valor.toString().toLowerCase().trim();
-      let numeroBase = parseFloat(texto.replace(/[^\d.-]/g, ''));
-      if (isNaN(numeroBase)) return 0;
-      if (numeroBase < 0) return 1; 
-      return texto.includes('m') ? numeroBase : numeroBase * 60;
-    };
-
-    jsonData.forEach(row => {
-      const agent = row["Persona asignada"] || "Sin asignar";
-      const estado = (row["Estado"] || "").toString().trim();
-      const esEscalado = row["SD - Escalado"] && row["SD - Escalado"].toString().trim() !== "";
-      
-      // Validación de Satisfaction: verificamos que sea un número válido
-      const rawSatisfaction = row["Satisfaction"];
-      const tieneSatisfaction = rawSatisfaction !== undefined && rawSatisfaction !== null && rawSatisfaction !== "";
-      const valorSatisfaction = parseFloat(rawSatisfaction);
-      
-      const resTimeMin = limpiarTiempo(row["Time to resolution"]);
-      const frTimeMin = limpiarTiempo(row["Time to first response"]);
-
-      if (!agentStats[agent]) {
-        agentStats[agent] = {
-          name: agent,
-          totalTickets: 0,
-          escaladosCount: 0,
-          declinadosCount: 0,
-          frTimes: [],
-          resTimesEsc: [],
-          resTimesNoEsc: [],
-          // Métricas de Satisfacción
-          sumaSatisfaccion: 0,
-          countSatisfaccion: 0, // Tickets que TIENEN satisfacción (para CSAT y DSAT)
-          dsatBajos: 0,         // Tickets con 1 o 2
-          countFinalizadas: 0   // Tickets con estado "Finalizada"
-        };
-      }
-
-      const s = agentStats[agent];
-      s.totalTickets += 1;
-
-      // 1. % Escalados
-      if (esEscalado) s.escaladosCount += 1;
-
-      // 2. % Declinados
-      if (estado === "Declined") s.declinadosCount += 1;
-
-      // 3. Inicio de gestión
-      if (frTimeMin > 0) s.frTimes.push(frTimeMin);
-
-      // 4 y 5. Resolution Times
-      if (esEscalado) {
-        s.resTimesEsc.push(resTimeMin / 60); 
-      } else {
-        s.resTimesNoEsc.push(resTimeMin / 60);
-      }
-
-      // --- NUEVA LÓGICA DE SATISFACCIÓN ---
-
-      // Contamos cuantas "Finalizada" hay (para Answer Rate)
-      if (estado === "Finalizada") {
-        s.countFinalizadas += 1;
-      }
-
-      // Si tiene el campo Satisfaction diligenciado
-      if (tieneSatisfaction && !isNaN(valorSatisfaction)) {
-        s.countSatisfaccion += 1; // Denominador para DSAT
-        
-        // Regla 1: CSAT (Solo si es "Finalizada" y tiene Satisfaction)
-        if (estado === "Finalizada") {
-          s.sumaSatisfaccion += valorSatisfaction;
-        }
-
-        // Regla 2: DSAT (Porcentaje de 1 y 2 sobre el total de Satisfaction diligenciados)
-        if (valorSatisfaction === 1 || valorSatisfaction === 2) {
-          s.dsatBajos += 1;
-        }
-      }
-    });
-
-    const procesarDatos = (jsonData) => {
+  const procesarDatos = (jsonData) => {
     const agentStats = {};
 
     const limpiarTiempo = (valor) => {
@@ -154,12 +74,11 @@ const procesarDatos = (jsonData) => {
           frTimes: [],
           resTimesEsc: [],
           resTimesNoEsc: [],
-          // --- NUEVOS CONTADORES ESPECÍFICOS ---
           sumaSatisfaccionFinalizada: 0,
-          countFinalizadasConNota: 0, // Solo Finalizada + Nota (Denominador CSAT)
-          countSatisfaccionTotal: 0,   // Cualquier estado + Nota (Denominador DSAT)
-          dsatBajos: 0,                // Notas 1 y 2
-          countFinalizadas: 0          // Solo estado Finalizada (Denominador Answer Rate)
+          countFinalizadasConNota: 0,
+          countSatisfaccionTotal: 0,
+          dsatBajos: 0,
+          countFinalizadas: 0
         };
       }
 
@@ -173,21 +92,18 @@ const procesarDatos = (jsonData) => {
       if (esEscalado) s.resTimesEsc.push(resTimeMin / 60); 
       else s.resTimesNoEsc.push(resTimeMin / 60);
 
-      // --- LÓGICA DE SATISFACCIÓN REFINADA ---
-
-      // 1. Para Answer Rate: Contamos todas las "Finalizada"
+      // Lógica de estados y satisfacción
       if (estado === "Finalizada") {
         s.countFinalizadas += 1;
       }
 
-      // 2. Para DSAT: Si tiene nota (no importa el estado)
       if (tieneSatisfaction && !isNaN(valorSatisfaction)) {
-        s.countSatisfaccionTotal += 1;
+        s.countSatisfaccionTotal += 1; // Para DSAT (Cualquier estado con nota)
+        
         if (valorSatisfaction === 1 || valorSatisfaction === 2) {
           s.dsatBajos += 1;
         }
 
-        // 3. Para CSAT: Solo si está Finalizada Y tiene nota
         if (estado === "Finalizada") {
           s.sumaSatisfaccionFinalizada += valorSatisfaction;
           s.countFinalizadasConNota += 1;
@@ -205,18 +121,12 @@ const procesarDatos = (jsonData) => {
         inicioGestionMin: avgFR.toFixed(2) + " min",
         resTimeSinEscalarMediana: calcularMediana(s.resTimesNoEsc).toFixed(2) + " h",
         resTimeEscaladoMediana: calcularMediana(s.resTimesEsc).toFixed(2) + " h",
-        
-        // 1. CSAT corregido: Promedio real de Finalizadas con nota
         csat: s.countFinalizadasConNota > 0 
           ? (s.sumaSatisfaccionFinalizada / s.countFinalizadasConNota).toFixed(2) 
           : "0.00",
-        
-        // 2. DSAT: % de (1 y 2) sobre total de registros con Satisfaction
         dsat: s.countSatisfaccionTotal > 0 
           ? ((s.dsatBajos / s.countSatisfaccionTotal) * 100).toFixed(2) + "%" 
           : "0%",
-        
-        // 3. Answer Rate: % de Finalizadas que tienen nota
         answerRate: s.countFinalizadas > 0 
           ? ((s.countFinalizadasConNota / s.countFinalizadas) * 100).toFixed(2) + "%" 
           : "0%"
