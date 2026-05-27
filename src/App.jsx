@@ -37,7 +37,7 @@ function App() {
       : (sorted[mid - 1] + sorted[mid]) / 2;
   };
 
-  const procesarDatos = (jsonData) => {
+ const procesarDatos = (jsonData) => {
     const agentStats = {};
 
     const limpiarTiempo = (valor) => {
@@ -46,16 +46,14 @@ function App() {
       let numeroBase = parseFloat(texto.replace(/[^\d.-]/g, ''));
       if (isNaN(numeroBase)) return 0;
       if (numeroBase < 0) return 1; 
-      // Si el texto incluye 'm' son minutos, de lo contrario asumimos horas
       return texto.includes('m') ? numeroBase : numeroBase * 60;
     };
 
     jsonData.forEach(row => {
-      // MAPEAREMOS LOS CAMPOS SEGÚN TU LISTA:
       const agent = row["Persona asignada"] || "Sin asignar";
       const estado = (row["Estado"] || "").toString().trim();
       const esEscalado = row["SD - Escalado"] && row["SD - Escalado"].toString().trim() !== "";
-      const satisfaccion = parseFloat(row["Satisfaction"]); // Cambiado de 'Satisfacción' a 'Satisfaction'
+      const satisfaccion = parseFloat(row["Satisfaction"]);
       
       const resTimeMin = limpiarTiempo(row["Time to resolution"]);
       const frTimeMin = limpiarTiempo(row["Time to first response"]);
@@ -65,7 +63,7 @@ function App() {
           name: agent,
           totalTickets: 0,
           escaladosCount: 0,
-          declinadosCount: 0,
+          declinadosCount: 0, // Aquí contaremos los "Declined"
           frTimes: [],
           resTimesEsc: [],
           resTimesNoEsc: [],
@@ -78,27 +76,31 @@ function App() {
       }
 
       const s = agentStats[agent];
-      s.totalTickets += 1;
+      
+      // Usamos la existencia de "Clave" para contar el total de tickets por agente
+      if (row["Clave"]) {
+        s.totalTickets += 1;
+      }
 
-      // 1. % Escalados (Campo: SD - Escalado)
+      // 1. % Escalados
       if (esEscalado) s.escaladosCount += 1;
 
-      // 2. % Declinados (Estado: "Rechazado" o "Declarando" - ajusta según tu flujo)
-      // Como en tu lista no aparece "Declarando", he puesto "Rechazado" como ejemplo o puedes dejar el que uses
-      if (estado === "Declarando" || estado === "Rechazado") s.declinadosCount += 1;
+      // 2. % Declinados (MODIFICADO: Filtro exacto por "Declined")
+      if (estado === "Declined") {
+        s.declinadosCount += 1;
+      }
 
       // 3. Inicio de gestión
       if (frTimeMin > 0) s.frTimes.push(frTimeMin);
 
-      // 4 y 5. Resolution Times (Medianas)
+      // 4 y 5. Resolution Times
       if (esEscalado) {
         s.resTimesEsc.push(resTimeMin / 60); 
       } else {
         s.resTimesNoEsc.push(resTimeMin / 60);
       }
 
-      // 6, 7 y 8. Métricas de Satisfacción
-      // Filtramos por estado "Resuelta" que es el que aparece en tu lista
+      // 6, 7 y 8. Satisfacción
       if (estado === "Resuelta" || estado === "Finalizado") {
         s.finalizadosCount += 1;
         if (!isNaN(satisfaccion)) {
@@ -116,8 +118,9 @@ function App() {
       
       return {
         name: s.name,
-        porcentajeEscalados: ((s.escaladosCount / s.totalTickets) * 100).toFixed(2) + "%",
-        porcentajeDeclinados: ((s.declinadosCount / s.totalTickets) * 100).toFixed(2) + "%",
+        porcentajeEscalados: s.totalTickets > 0 ? ((s.escaladosCount / s.totalTickets) * 100).toFixed(2) + "%" : "0%",
+        // CÁLCULO ACTUALIZADO:
+        porcentajeDeclinados: s.totalTickets > 0 ? ((s.declinadosCount / s.totalTickets) * 100).toFixed(2) + "%" : "0%",
         inicioGestionMin: avgFR.toFixed(2) + " min",
         resTimeSinEscalarMediana: calcularMediana(s.resTimesNoEsc).toFixed(2) + " h",
         resTimeEscaladoMediana: calcularMediana(s.resTimesEsc).toFixed(2) + " h",
