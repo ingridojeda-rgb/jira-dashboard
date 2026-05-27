@@ -6,7 +6,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [currentWeek, setCurrentWeek] = useState("");
 
-  const archivos = ["/Week 11.5.xlsx"];
+  const archivos = ["Week18.5.xlsx"];
 
   useEffect(() => {
     const cargarUltimaSemana = async () => {
@@ -37,7 +37,7 @@ function App() {
       : (sorted[mid - 1] + sorted[mid]) / 2;
   };
 
- const procesarDatos = (jsonData) => {
+const procesarDatos = (jsonData) => {
     const agentStats = {};
 
     const limpiarTiempo = (valor) => {
@@ -53,7 +53,11 @@ function App() {
       const agent = row["Persona asignada"] || "Sin asignar";
       const estado = (row["Estado"] || "").toString().trim();
       const esEscalado = row["SD - Escalado"] && row["SD - Escalado"].toString().trim() !== "";
-      const satisfaccion = parseFloat(row["Satisfaction"]);
+      
+      // Validación de Satisfaction: verificamos que sea un número válido
+      const rawSatisfaction = row["Satisfaction"];
+      const tieneSatisfaction = rawSatisfaction !== undefined && rawSatisfaction !== null && rawSatisfaction !== "";
+      const valorSatisfaction = parseFloat(rawSatisfaction);
       
       const resTimeMin = limpiarTiempo(row["Time to resolution"]);
       const frTimeMin = limpiarTiempo(row["Time to first response"]);
@@ -63,32 +67,26 @@ function App() {
           name: agent,
           totalTickets: 0,
           escaladosCount: 0,
-          declinadosCount: 0, // Aquí contaremos los "Declined"
+          declinadosCount: 0,
           frTimes: [],
           resTimesEsc: [],
           resTimesNoEsc: [],
-          satisfaccionTotal: 0,
-          satisfaccionCount: 0,
-          dsatCount: 0,
-          finalizadosCount: 0,
-          ticketsConSatisfaccion: 0
+          // Métricas de Satisfacción
+          sumaSatisfaccion: 0,
+          countSatisfaccion: 0, // Tickets que TIENEN satisfacción (para CSAT y DSAT)
+          dsatBajos: 0,         // Tickets con 1 o 2
+          countFinalizadas: 0   // Tickets con estado "Finalizada"
         };
       }
 
       const s = agentStats[agent];
-      
-      // Usamos la existencia de "Clave" para contar el total de tickets por agente
-      if (row["Clave"]) {
-        s.totalTickets += 1;
-      }
+      s.totalTickets += 1;
 
       // 1. % Escalados
       if (esEscalado) s.escaladosCount += 1;
 
-      // 2. % Declinados (MODIFICADO: Filtro exacto por "Declined")
-      if (estado === "Declined") {
-        s.declinadosCount += 1;
-      }
+      // 2. % Declinados
+      if (estado === "Declined") s.declinadosCount += 1;
 
       // 3. Inicio de gestión
       if (frTimeMin > 0) s.frTimes.push(frTimeMin);
@@ -100,15 +98,25 @@ function App() {
         s.resTimesNoEsc.push(resTimeMin / 60);
       }
 
-      // 6, 7 y 8. Satisfacción
-      if (estado === "Resuelta" || estado === "Finalizado") {
-        s.finalizadosCount += 1;
-        if (!isNaN(satisfaccion)) {
-          s.ticketsConSatisfaccion += 1;
-          s.satisfaccionTotal += satisfaccion;
-          if (satisfaccion === 1 || satisfaccion === 2) {
-            s.dsatCount += 1;
-          }
+      // --- NUEVA LÓGICA DE SATISFACCIÓN ---
+
+      // Contamos cuantas "Finalizada" hay (para Answer Rate)
+      if (estado === "Finalizada") {
+        s.countFinalizadas += 1;
+      }
+
+      // Si tiene el campo Satisfaction diligenciado
+      if (tieneSatisfaction && !isNaN(valorSatisfaction)) {
+        s.countSatisfaccion += 1; // Denominador para DSAT
+        
+        // Regla 1: CSAT (Solo si es "Finalizada" y tiene Satisfaction)
+        if (estado === "Finalizada") {
+          s.sumaSatisfaccion += valorSatisfaction;
+        }
+
+        // Regla 2: DSAT (Porcentaje de 1 y 2 sobre el total de Satisfaction diligenciados)
+        if (valorSatisfaction === 1 || valorSatisfaction === 2) {
+          s.dsatBajos += 1;
         }
       }
     });
@@ -119,14 +127,26 @@ function App() {
       return {
         name: s.name,
         porcentajeEscalados: s.totalTickets > 0 ? ((s.escaladosCount / s.totalTickets) * 100).toFixed(2) + "%" : "0%",
-        // CÁLCULO ACTUALIZADO:
         porcentajeDeclinados: s.totalTickets > 0 ? ((s.declinadosCount / s.totalTickets) * 100).toFixed(2) + "%" : "0%",
         inicioGestionMin: avgFR.toFixed(2) + " min",
         resTimeSinEscalarMediana: calcularMediana(s.resTimesNoEsc).toFixed(2) + " h",
         resTimeEscaladoMediana: calcularMediana(s.resTimesEsc).toFixed(2) + " h",
-        csat: s.ticketsConSatisfaccion > 0 ? (s.satisfaccionTotal / s.ticketsConSatisfaccion).toFixed(2) : "0.00",
-        dsat: s.ticketsConSatisfaccion > 0 ? ((s.dsatCount / s.ticketsConSatisfaccion) * 100).toFixed(2) + "%" : "0%",
-        answerRate: s.finalizadosCount > 0 ? ((s.ticketsConSatisfaccion / s.finalizadosCount) * 100).toFixed(2) + "%" : "0%"
+        
+        // 1. CSAT: Promedio de satisfacción en Finalizadas
+        csat: s.countFinalizadas > 0 && s.sumaSatisfaccion > 0 
+          ? (s.sumaSatisfaccion / s.countSatisfaccion).toFixed(2) 
+          : "0.00",
+        
+        // 2. DSAT: % de (1 y 2) sobre total de Satisfaction diligenciados
+        dsat: s.countSatisfaccion > 0 
+          ? ((s.dsatBajos / s.countSatisfaccion) * 100).toFixed(2) + "%" 
+          : "0%",
+        
+        // 3. Answer Rate: % de Finalizadas que tienen Satisfaction
+        // (Nota: un ticket puede tener satisfacción sin estar finalizado, pero aquí filtramos por la lógica solicitada)
+        answerRate: s.countFinalizadas > 0 
+          ? ((s.countSatisfaccion / s.countFinalizadas) * 100).toFixed(2) + "%" 
+          : "0%"
       };
     });
 
