@@ -6,7 +6,6 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [currentWeek, setCurrentWeek] = useState("");
 
-  // Nombre del archivo actualizado
   const archivos = ["/Week18.5.xlsx"];
 
   useEffect(() => {
@@ -15,7 +14,6 @@ function App() {
         const ultimaRuta = archivos[archivos.length - 1];
         setCurrentWeek(ultimaRuta.replace("/", "").replace(".xlsx", ""));
         
-        // Agregamos un parámetro de tiempo para evitar la caché del navegador
         const response = await fetch(`${ultimaRuta}?v=${new Date().getTime()}`);
         const arrayBuffer = await response.arrayBuffer();
         const workbook = XLSX.read(arrayBuffer);
@@ -33,7 +31,7 @@ function App() {
   }, []);
 
   const calcularMediana = (arr) => {
-    if (arr.length === 0) return 0;
+    if (!arr || arr.length === 0) return 0;
     const sorted = [...arr].sort((a, b) => a - b);
     const mid = Math.floor(sorted.length / 2);
     return sorted.length % 2 !== 0 
@@ -44,26 +42,16 @@ function App() {
   const procesarDatos = (jsonData) => {
     const agentStats = {};
 
-    const limpiarTiempo = (valor) => {
-      if (valor === undefined || valor === null || valor === "") return 0;
-      let texto = valor.toString().toLowerCase().trim();
-      let numeroBase = parseFloat(texto.replace(/[^\d.-]/g, ''));
-      if (isNaN(numeroBase)) return 0;
-      if (numeroBase < 0) return 1; 
-      return texto.includes('m') ? numeroBase : numeroBase * 60;
-    };
-
     jsonData.forEach(row => {
       const agent = row["Persona asignada"] || "Sin asignar";
       const estado = (row["Estado"] || "").toString().trim();
       const esEscalado = row["SD - Escalado"] && row["SD - Escalado"].toString().trim() !== "";
       
+      const tiempoAbierto = parseFloat(row["Mediana tiempo abierto (hrs)"]) || 0;
       const rawSatisfaction = row["Satisfaction"];
       const tieneSatisfaction = rawSatisfaction !== undefined && rawSatisfaction !== null && rawSatisfaction !== "";
       const valorSatisfaction = parseFloat(rawSatisfaction);
-      
-      const resTimeMin = limpiarTiempo(row["Time to resolution"]);
-      const frTimeMin = limpiarTiempo(row["Time to first response"]);
+      const frTimeMin = parseFloat(row["Time to first response"]) || 0;
 
       if (!agentStats[agent]) {
         agentStats[agent] = {
@@ -72,11 +60,11 @@ function App() {
           escaladosCount: 0,
           declinadosCount: 0,
           frTimes: [],
-          resTimesEsc: [],
-          resTimesNoEsc: [],
+          tiemposEscalados: [],
+          tiemposNoEscalados: [],
+          // Métricas de Satisfacción Unificadas
           sumaSatisfaccionFinalizada: 0,
           countFinalizadasConNota: 0,
-          countSatisfaccionTotal: 0,
           dsatBajos: 0,
           countFinalizadas: 0
         };
@@ -87,26 +75,27 @@ function App() {
 
       if (esEscalado) s.escaladosCount += 1;
       if (estado === "Declined") s.declinadosCount += 1;
-      if (frTimeMin > 0) s.frTimes.push(frTimeMin);
-
-      if (esEscalado) s.resTimesEsc.push(resTimeMin / 60); 
-      else s.resTimesNoEsc.push(resTimeMin / 60);
-
-      // Lógica de estados y satisfacción
-      if (estado === "Finalizada") {
-        s.countFinalizadas += 1;
+      
+      if (esEscalado) {
+        s.tiemposEscalados.push(tiempoAbierto);
+      } else {
+        s.tiemposNoEscalados.push(tiempoAbierto);
       }
 
-      if (tieneSatisfaction && !isNaN(valorSatisfaction)) {
-        s.countSatisfaccionTotal += 1; // Para DSAT (Cualquier estado con nota)
-        
-        if (valorSatisfaction === 1 || valorSatisfaction === 2) {
-          s.dsatBajos += 1;
-        }
+      if (frTimeMin > 0) s.frTimes.push(frTimeMin);
 
-        if (estado === "Finalizada") {
+      // --- LÓGICA DE SATISFACCIÓN BLINDADA (Solo "Finalizada") ---
+      if (estado === "Finalizada") {
+        s.countFinalizadas += 1; // Base para Answer Rate
+
+        if (tieneSatisfaction && !isNaN(valorSatisfaction)) {
+          s.countFinalizadasConNota += 1; // Denominador común para CSAT y DSAT
           s.sumaSatisfaccionFinalizada += valorSatisfaction;
-          s.countFinalizadasConNota += 1;
+
+          // Si la nota es 1 o 2, se cuenta como DSAT
+          if (valorSatisfaction === 1 || valorSatisfaction === 2) {
+            s.dsatBajos += 1;
+          }
         }
       }
     });
@@ -119,14 +108,21 @@ function App() {
         porcentajeEscalados: s.totalTickets > 0 ? ((s.escaladosCount / s.totalTickets) * 100).toFixed(2) + "%" : "0%",
         porcentajeDeclinados: s.totalTickets > 0 ? ((s.declinadosCount / s.totalTickets) * 100).toFixed(2) + "%" : "0%",
         inicioGestionMin: avgFR.toFixed(2) + " min",
-        resTimeSinEscalarMediana: calcularMediana(s.resTimesNoEsc).toFixed(2) + " h",
-        resTimeEscaladoMediana: calcularMediana(s.resTimesEsc).toFixed(2) + " h",
+        
+        resTimeSinEscalarMediana: calcularMediana(s.tiemposNoEscalados).toFixed(2) + " h",
+        resTimeEscaladoMediana: calcularMediana(s.tiemposEscalados).toFixed(2) + " h",
+        
+        // CSAT: Promedio solo de Finalizadas con nota
         csat: s.countFinalizadasConNota > 0 
           ? (s.sumaSatisfaccionFinalizada / s.countFinalizadasConNota).toFixed(2) 
           : "0.00",
-        dsat: s.countSatisfaccionTotal > 0 
-          ? ((s.dsatBajos / s.countSatisfaccionTotal) * 100).toFixed(2) + "%" 
+          
+        // DSAT: % de notas 1-2 sobre el mismo grupo de Finalizadas con nota
+        dsat: s.countFinalizadasConNota > 0 
+          ? ((s.dsatBajos / s.countFinalizadasConNota) * 100).toFixed(2) + "%" 
           : "0%",
+          
+        // Answer Rate: % de tickets cerrados que fueron calificados
         answerRate: s.countFinalizadas > 0 
           ? ((s.countFinalizadasConNota / s.countFinalizadas) * 100).toFixed(2) + "%" 
           : "0%"
@@ -141,18 +137,10 @@ function App() {
     background: "white", borderRadius: "8px", overflow: "hidden",
     boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)"
   };
+  const thStyle = { backgroundColor: "#1e3a8a", color: "white", padding: "12px 15px", textAlign: "left", fontSize: "14px" };
+  const tdStyle = { padding: "10px 15px", borderBottom: "1px solid #e2e8f0", fontSize: "13px", color: "#334155" };
 
-  const thStyle = {
-    backgroundColor: "#1e3a8a", color: "white", padding: "12px 15px",
-    textAlign: "left", fontSize: "14px"
-  };
-
-  const tdStyle = {
-    padding: "10px 15px", borderBottom: "1px solid #e2e8f0",
-    fontSize: "13px", color: "#334155"
-  };
-
-  if (loading) return <div style={{ padding: "50px" }}>Cargando análisis de datos...</div>;
+  if (loading) return <div style={{ padding: "50px" }}>Cargando métricas unificadas...</div>;
 
   return (
     <div style={{ padding: "30px", fontFamily: "sans-serif", background: "#f1f5f9", minHeight: "100vh" }}>
@@ -162,7 +150,7 @@ function App() {
       </header>
 
       <section>
-        <h3 style={{ color: "#1e40af", borderLeft: "4px solid #1e40af", paddingLeft: "10px" }}>Resumen Operativo por Agente</h3>
+        <h3 style={{ color: "#1e40af", borderLeft: "4px solid #1e40af", paddingLeft: "10px" }}>Resumen Operativo (Mediana de Tiempos)</h3>
         <table style={tableStyle}>
           <thead>
             <tr>
@@ -170,8 +158,8 @@ function App() {
               <th style={thStyle}>% de Escalados</th>
               <th style={thStyle}>% Declinados</th>
               <th style={thStyle}>Inicio de gestión</th>
-              <th style={thStyle}>Resolution time sin escalar (Mediana)</th>
-              <th style={thStyle}>Resolution time escalado (Mediana)</th>
+              <th style={thStyle}>Mediana Tiempo Abierto (Sin Escalar)</th>
+              <th style={thStyle}>Mediana Tiempo Abierto (Escalado)</th>
             </tr>
           </thead>
           <tbody>
@@ -188,7 +176,7 @@ function App() {
           </tbody>
         </table>
 
-        <h3 style={{ color: "#1e40af", borderLeft: "4px solid #1e40af", paddingLeft: "10px" }}>Métricas de Satisfacción</h3>
+        <h3 style={{ color: "#1e40af", borderLeft: "4px solid #1e40af", paddingLeft: "10px" }}>Métricas de Satisfacción (Solo Finalizadas)</h3>
         <table style={tableStyle}>
           <thead>
             <tr>
