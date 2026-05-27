@@ -1,21 +1,12 @@
 import { useEffect, useState } from "react";
 import * as XLSX from "xlsx";
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
-  PieChart, Pie, Cell, Legend, ResponsiveContainer
-} from "recharts";
 
 function App() {
-  const [metrics, setMetrics] = useState({});
-  const [byPerson, setByPerson] = useState([]);
-  const [pieData, setPieData] = useState([]);
-  const [firstResponseByAgent, setFirstResponseByAgent] = useState([]);
+  const [dataByAgent, setDataByAgent] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentWeek, setCurrentWeek] = useState("");
 
-  const archivos = [
-    "/Week 11.5.xlsx" 
-  ];
+  const archivos = ["/Week 18.5.xlsx"];
 
   useEffect(() => {
     const cargarUltimaSemana = async () => {
@@ -37,141 +28,189 @@ function App() {
     cargarUltimaSemana();
   }, []);
 
+  // Función para calcular la mediana
+  const calcularMediana = (arr) => {
+    if (arr.length === 0) return 0;
+    const sorted = [...arr].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 !== 0 
+      ? sorted[mid] 
+      : (sorted[mid - 1] + sorted[mid]) / 2;
+  };
+
   const procesarDatos = (jsonData) => {
-    const total = jsonData.length;
     const agentStats = {};
 
-    // Función auxiliar para limpiar y convertir tiempos (Horas/Minutos/Negativos)
     const limpiarTiempo = (valor) => {
       if (valor === undefined || valor === null || valor === "") return 0;
       let texto = valor.toString().toLowerCase().trim();
       let numeroBase = parseFloat(texto.replace(/[^\d.-]/g, ''));
-
       if (isNaN(numeroBase)) return 0;
-      if (numeroBase < 0) return 1; // Regla: negativo se vuelve 1 positivo
-      if (texto.includes('m')) return numeroBase / 60; // Regla: minutos a horas
-      return numeroBase;
+      if (numeroBase < 0) return 1; 
+      // Si el texto tiene 'm' son minutos, si no, asumimos horas (multiplicamos por 60 para estandarizar a minutos internamente)
+      return texto.includes('m') ? numeroBase : numeroBase * 60;
     };
 
     jsonData.forEach(row => {
-      const person = row["Persona asignada"] || "Sin asignar";
-      const resTime = limpiarTiempo(row["Time to resolution"]);
-      const frTime = limpiarTiempo(row["Time to first response"]);
-      const estaEscalado = row["SD-Escalado"] && row["SD-Escalado"].toString().trim() !== "";
+      const agent = row["Persona asignada"] || "Sin asignar";
+      const estado = (row["Estado"] || "").toString().trim();
+      const esEscalado = row["SD-Escalado"] && row["SD-Escalado"].toString().trim() !== "";
+      const satisfaccion = parseFloat(row["Satisfacción"]);
+      
+      const resTimeMin = limpiarTiempo(row["Time to resolution"]);
+      const frTimeMin = limpiarTiempo(row["Time to first response"]);
 
-      if (!agentStats[person]) {
-        agentStats[person] = { 
-          name: person, 
-          escTotal: 0, escCount: 0,
-          noEscTotal: 0, noEscCount: 0,
-          frTotal: 0, frCount: 0
+      if (!agentStats[agent]) {
+        agentStats[agent] = {
+          name: agent,
+          totalTickets: 0,
+          escaladosCount: 0,
+          declinadosCount: 0,
+          frTimes: [],
+          resTimesEsc: [],
+          resTimesNoEsc: [],
+          satisfaccionTotal: 0,
+          satisfaccionCount: 0,
+          dsatCount: 0,
+          finalizadosCount: 0,
+          ticketsConSatisfaccion: 0
         };
       }
 
-      if (estaEscalado) {
-        agentStats[person].escTotal += resTime;
-        agentStats[person].escCount += 1;
+      const s = agentStats[agent];
+      s.totalTickets += 1;
+
+      // 1. % Escalados
+      if (esEscalado) s.escaladosCount += 1;
+
+      // 2. % Declinados (Estado "Declarando")
+      if (estado === "Declarando") s.declinadosCount += 1;
+
+      // 3. Inicio de gestión
+      if (frTimeMin > 0) s.frTimes.push(frTimeMin);
+
+      // 4 y 5. Resolution Times (Medianas)
+      if (esEscalado) {
+        s.resTimesEsc.push(resTimeMin / 60); // Guardamos en horas para la mediana
       } else {
-        agentStats[person].noEscTotal += resTime;
-        agentStats[person].noEscCount += 1;
+        s.resTimesNoEsc.push(resTimeMin / 60);
       }
 
-      agentStats[person].frTotal += frTime;
-      agentStats[person].frCount += 1;
+      // Filtros para tickets Finalizados (CSAT, DSAT, Answer Rate)
+      if (estado === "Finalizado") {
+        s.finalizadosCount += 1;
+        if (!isNaN(satisfaccion)) {
+          s.ticketsConSatisfaccion += 1;
+          s.satisfaccionTotal += satisfaccion;
+          if (satisfaccion === 1 || satisfaccion === 2) {
+            s.dsatCount += 1;
+          }
+        }
+      }
     });
 
-    const resolutionData = Object.keys(agentStats).map(person => ({
-      name: person,
-      "T. Escalado": agentStats[person].escCount > 0 ? parseFloat((agentStats[person].escTotal / agentStats[person].escCount).toFixed(2)) : 0,
-      "T. No Escalado": agentStats[person].noEscCount > 0 ? parseFloat((agentStats[person].noEscTotal / agentStats[person].noEscCount).toFixed(2)) : 0
-    }));
-
-    const responseData = Object.keys(agentStats).map(person => ({
-      name: person,
-      "Promedio 1ra Resp": agentStats[person].frCount > 0 ? parseFloat((agentStats[person].frTotal / agentStats[person].frCount).toFixed(2)) : 0
-    }));
-
-    const buckets = { "0-24h": 0, "24-48h": 0, "48h+": 0 };
-    jsonData.forEach(row => {
-      const t = limpiarTiempo(row["Time to resolution"]);
-      if (t <= 24) buckets["0-24h"]++;
-      else if (t <= 48) buckets["24-48h"]++;
-      else buckets["48h+"]++;
+    const finalData = Object.values(agentStats).map(s => {
+      const avgFR = s.frTimes.length > 0 ? (s.frTimes.reduce((a,b) => a+b, 0) / s.frTimes.length) : 0;
+      
+      return {
+        name: s.name,
+        porcentajeEscalados: ((s.escaladosCount / s.totalTickets) * 100).toFixed(2) + "%",
+        porcentajeDeclinados: ((s.declinadosCount / s.totalTickets) * 100).toFixed(2) + "%",
+        inicioGestionMin: avgFR.toFixed(2) + " min",
+        resTimeSinEscalarMediana: calcularMediana(s.resTimesNoEsc).toFixed(2) + " h",
+        resTimeEscaladoMediana: calcularMediana(s.resTimesEsc).toFixed(2) + " h",
+        csat: s.ticketsConSatisfaccion > 0 ? (s.satisfaccionTotal / s.ticketsConSatisfaccion).toFixed(2) : "0.00",
+        dsat: s.ticketsConSatisfaccion > 0 ? ((s.dsatCount / s.ticketsConSatisfaccion) * 100).toFixed(2) + "%" : "0%",
+        answerRate: s.finalizadosCount > 0 ? ((s.ticketsConSatisfaccion / s.finalizadosCount) * 100).toFixed(2) + "%" : "0%"
+      };
     });
 
-    // Promedios generales para las tarjetas
-    const avgRes = resolutionData.length > 0 
-      ? resolutionData.reduce((acc, curr) => acc + (curr["T. Escalado"] + curr["T. No Escalado"]), 0) / resolutionData.length 
-      : 0;
-    const avgFirst = responseData.length > 0 
-      ? responseData.reduce((acc, curr) => acc + curr["Promedio 1ra Resp"], 0) / responseData.length 
-      : 0;
-
-    setMetrics({ tickets: total, avgRes, avgFirst });
-    setByPerson(resolutionData);
-    setFirstResponseByAgent(responseData);
-    setPieData(Object.keys(buckets).map(name => ({ name, value: buckets[name] })));
+    setDataByAgent(finalData);
   };
 
-  const cardStyle = {
-    background: "white", padding: "20px", borderRadius: "16px",
-    boxShadow: "0 8px 20px rgba(0,0,0,0.08)", flex: 1, textAlign: "center"
+  const tableStyle = {
+    width: "100%",
+    borderCollapse: "collapse",
+    marginBottom: "40px",
+    background: "white",
+    borderRadius: "8px",
+    overflow: "hidden",
+    boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)"
   };
 
-  if (loading) return <div style={{ padding: "50px" }}>Cargando análisis por agente...</div>;
+  const thStyle = {
+    backgroundColor: "#1e3a8a",
+    color: "white",
+    padding: "12px 15px",
+    textAlign: "left",
+    fontSize: "14px"
+  };
+
+  const tdStyle = {
+    padding: "10px 15px",
+    borderBottom: "1px solid #e2e8f0",
+    fontSize: "13px",
+    color: "#334155"
+  };
+
+  if (loading) return <div style={{ padding: "50px" }}>Cargando análisis de datos...</div>;
 
   return (
-    <div style={{ padding: "30px", fontFamily: "sans-serif", background: "#f8fafc", minHeight: "100vh" }}>
-      <h1 style={{ color: "#1e3a8a" }}>📊 Dashboard Jira: {currentWeek}</h1>
+    <div style={{ padding: "30px", fontFamily: "sans-serif", background: "#f1f5f9", minHeight: "100vh" }}>
+      <header style={{ marginBottom: "30px" }}>
+        <h1 style={{ color: "#1e3a8a", margin: 0 }}>📊 Dashboard de Métricas Jira</h1>
+        <p style={{ color: "#64748b" }}>Semana: {currentWeek}</p>
+      </header>
 
-      <div style={{ display: "flex", gap: 20, marginBottom: 30 }}>
-        <div style={cardStyle}><h4>📂 Tickets</h4><h2 style={{ color: "#2563eb" }}>{metrics.tickets}</h2></div>
-        <div style={cardStyle}><h4>⏱️ Prom. Resolución</h4><h2 style={{ color: "#2563eb" }}>{metrics.avgRes?.toFixed(2)}h</h2></div>
-        <div style={cardStyle}><h4>🚀 1ra Respuesta</h4><h2 style={{ color: "#2563eb" }}>{metrics.avgFirst?.toFixed(2)}h</h2></div>
-      </div>
+      <section>
+        <h3 style={{ color: "#1e40af", borderLeft: "4px solid #1e40af", paddingLeft: "10px" }}>Resumen Operativo por Agente</h3>
+        <table style={tableStyle}>
+          <thead>
+            <tr>
+              <th style={thStyle}>Persona Asignada</th>
+              <th style={thStyle}>% de Escalados</th>
+              <th style={thStyle}>% Declinados</th>
+              <th style={thStyle}>Inicio de gestión</th>
+              <th style={thStyle}>Resolution time sin escalar (Mediana)</th>
+              <th style={thStyle}>Resolution time escalado (Mediana)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {dataByAgent.map((agent, i) => (
+              <tr key={i} style={{ backgroundColor: i % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
+                <td style={{ ...tdStyle, fontWeight: "bold" }}>{agent.name}</td>
+                <td style={tdStyle}>{agent.porcentajeEscalados}</td>
+                <td style={tdStyle}>{agent.porcentajeDeclinados}</td>
+                <td style={tdStyle}>{agent.inicioGestionMin}</td>
+                <td style={tdStyle}>{agent.resTimeSinEscalarMediana}</td>
+                <td style={tdStyle}>{agent.resTimeEscaladoMediana}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
 
-      <div style={{ background: "white", padding: "20px", borderRadius: "16px", marginBottom: "30px" }}>
-        <h3>👥 Resolución Promedio por Persona: Escalado vs No Escalado</h3>
-        <ResponsiveContainer width="100%" height={500}>
-          <BarChart data={byPerson} margin={{ bottom: 120 }}> 
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="name" angle={-90} textAnchor="end" interval={0} height={120} tick={{ fontSize: 11 }} />
-            <YAxis label={{ value: 'Horas', angle: -90, position: 'insideLeft' }} />
-            <Tooltip />
-            <Legend verticalAlign="top" height={36}/>
-            <Bar dataKey="T. Escalado" fill="#f87171" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="T. No Escalado" fill="#6366f1" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div style={{ background: "white", padding: "20px", borderRadius: "16px", marginBottom: "30px" }}>
-        <h3>🚀 Tiempo Promedio de Primera Respuesta por Agente</h3>
-        <ResponsiveContainer width="100%" height={500}>
-          <BarChart data={firstResponseByAgent} margin={{ bottom: 120 }}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="name" angle={-90} textAnchor="end" interval={0} height={120} tick={{ fontSize: 11 }} />
-            <YAxis label={{ value: 'Horas', angle: -90, position: 'insideLeft' }} />
-            <Tooltip />
-            <Bar dataKey="Promedio 1ra Resp" fill="#34d399" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div style={{ background: "white", padding: "20px", borderRadius: "16px", maxWidth: "500px", margin: "0 auto" }}>
-        <h3>📊 Distribución de Resolución (Total)</h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <PieChart>
-            <Pie data={pieData} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} label>
-              <Cell fill="#6366f1" />
-              <Cell fill="#fbbf24" />
-              <Cell fill="#34d399" />
-            </Pie>
-            <Tooltip />
-            <Legend />
-          </PieChart>
-        </ResponsiveContainer>
-      </div>
+        <h3 style={{ color: "#1e40af", borderLeft: "4px solid #1e40af", paddingLeft: "10px" }}>Métricas de Satisfacción (Tickets Finalizados)</h3>
+        <table style={tableStyle}>
+          <thead>
+            <tr>
+              <th style={thStyle}>Persona Asignada</th>
+              <th style={thStyle}>CSAT (Promedio)</th>
+              <th style={thStyle}>DSAT (%)</th>
+              <th style={thStyle}>Answer Rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            {dataByAgent.map((agent, i) => (
+              <tr key={i} style={{ backgroundColor: i % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
+                <td style={{ ...tdStyle, fontWeight: "bold" }}>{agent.name}</td>
+                <td style={tdStyle}>{agent.csat}</td>
+                <td style={tdStyle}>{agent.dsat}</td>
+                <td style={tdStyle}>{agent.answerRate}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
     </div>
   );
 }
