@@ -6,7 +6,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [currentWeek, setCurrentWeek] = useState("");
 
-  const archivos = ["Week18.5.xlsx"];
+  const archivos = ["/Week 11.5.xlsx"];
 
   useEffect(() => {
     const cargarUltimaSemana = async () => {
@@ -28,7 +28,6 @@ function App() {
     cargarUltimaSemana();
   }, []);
 
-  // Función para calcular la mediana
   const calcularMediana = (arr) => {
     if (arr.length === 0) return 0;
     const sorted = [...arr].sort((a, b) => a - b);
@@ -47,15 +46,16 @@ function App() {
       let numeroBase = parseFloat(texto.replace(/[^\d.-]/g, ''));
       if (isNaN(numeroBase)) return 0;
       if (numeroBase < 0) return 1; 
-      // Si el texto tiene 'm' son minutos, si no, asumimos horas (multiplicamos por 60 para estandarizar a minutos internamente)
+      // Si el texto incluye 'm' son minutos, de lo contrario asumimos horas
       return texto.includes('m') ? numeroBase : numeroBase * 60;
     };
 
     jsonData.forEach(row => {
+      // MAPEAREMOS LOS CAMPOS SEGÚN TU LISTA:
       const agent = row["Persona asignada"] || "Sin asignar";
       const estado = (row["Estado"] || "").toString().trim();
-      const esEscalado = row["SD-Escalado"] && row["SD-Escalado"].toString().trim() !== "";
-      const satisfaccion = parseFloat(row["Satisfacción"]);
+      const esEscalado = row["SD - Escalado"] && row["SD - Escalado"].toString().trim() !== "";
+      const satisfaccion = parseFloat(row["Satisfaction"]); // Cambiado de 'Satisfacción' a 'Satisfaction'
       
       const resTimeMin = limpiarTiempo(row["Time to resolution"]);
       const frTimeMin = limpiarTiempo(row["Time to first response"]);
@@ -80,24 +80,26 @@ function App() {
       const s = agentStats[agent];
       s.totalTickets += 1;
 
-      // 1. % Escalados
+      // 1. % Escalados (Campo: SD - Escalado)
       if (esEscalado) s.escaladosCount += 1;
 
-      // 2. % Declinados (Estado "Declarando")
-      if (estado === "Declarando") s.declinadosCount += 1;
+      // 2. % Declinados (Estado: "Rechazado" o "Declarando" - ajusta según tu flujo)
+      // Como en tu lista no aparece "Declarando", he puesto "Rechazado" como ejemplo o puedes dejar el que uses
+      if (estado === "Declarando" || estado === "Rechazado") s.declinadosCount += 1;
 
       // 3. Inicio de gestión
       if (frTimeMin > 0) s.frTimes.push(frTimeMin);
 
       // 4 y 5. Resolution Times (Medianas)
       if (esEscalado) {
-        s.resTimesEsc.push(resTimeMin / 60); // Guardamos en horas para la mediana
+        s.resTimesEsc.push(resTimeMin / 60); 
       } else {
         s.resTimesNoEsc.push(resTimeMin / 60);
       }
 
-      // Filtros para tickets Finalizados (CSAT, DSAT, Answer Rate)
-      if (estado === "Finalizado") {
+      // 6, 7 y 8. Métricas de Satisfacción
+      // Filtramos por estado "Resuelta" que es el que aparece en tu lista
+      if (estado === "Resuelta" || estado === "Finalizado") {
         s.finalizadosCount += 1;
         if (!isNaN(satisfaccion)) {
           s.ticketsConSatisfaccion += 1;
@@ -129,28 +131,19 @@ function App() {
   };
 
   const tableStyle = {
-    width: "100%",
-    borderCollapse: "collapse",
-    marginBottom: "40px",
-    background: "white",
-    borderRadius: "8px",
-    overflow: "hidden",
+    width: "100%", borderCollapse: "collapse", marginBottom: "40px",
+    background: "white", borderRadius: "8px", overflow: "hidden",
     boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)"
   };
 
   const thStyle = {
-    backgroundColor: "#1e3a8a",
-    color: "white",
-    padding: "12px 15px",
-    textAlign: "left",
-    fontSize: "14px"
+    backgroundColor: "#1e3a8a", color: "white", padding: "12px 15px",
+    textAlign: "left", fontSize: "14px"
   };
 
   const tdStyle = {
-    padding: "10px 15px",
-    borderBottom: "1px solid #e2e8f0",
-    fontSize: "13px",
-    color: "#334155"
+    padding: "10px 15px", borderBottom: "1px solid #e2e8f0",
+    fontSize: "13px", color: "#334155"
   };
 
   if (loading) return <div style={{ padding: "50px" }}>Cargando análisis de datos...</div>;
@@ -159,7 +152,7 @@ function App() {
     <div style={{ padding: "30px", fontFamily: "sans-serif", background: "#f1f5f9", minHeight: "100vh" }}>
       <header style={{ marginBottom: "30px" }}>
         <h1 style={{ color: "#1e3a8a", margin: 0 }}>📊 Dashboard de Métricas Jira</h1>
-        <p style={{ color: "#64748b" }}>Semana: {currentWeek}</p>
+        <p style={{ color: "#64748b" }}>Semana actual: {currentWeek}</p>
       </header>
 
       <section>
@@ -189,7 +182,7 @@ function App() {
           </tbody>
         </table>
 
-        <h3 style={{ color: "#1e40af", borderLeft: "4px solid #1e40af", paddingLeft: "10px" }}>Métricas de Satisfacción (Tickets Finalizados)</h3>
+        <h3 style={{ color: "#1e40af", borderLeft: "4px solid #1e40af", paddingLeft: "10px" }}>Métricas de Satisfacción</h3>
         <table style={tableStyle}>
           <thead>
             <tr>
