@@ -130,39 +130,7 @@ function App() {
     });
 
     setDataByAgent(finalData);
-  };
-
-    const finalData = Object.values(agentStats).map(s => {
-      const avgFR = s.frTimes.length > 0 ? (s.frTimes.reduce((a,b) => a+b, 0) / s.frTimes.length) : 0;
-      
-      return {
-        name: s.name,
-        porcentajeEscalados: s.totalTickets > 0 ? ((s.escaladosCount / s.totalTickets) * 100).toFixed(2) + "%" : "0%",
-        porcentajeDeclinados: s.totalTickets > 0 ? ((s.declinadosCount / s.totalTickets) * 100).toFixed(2) + "%" : "0%",
-        inicioGestionMin: avgFR.toFixed(2) + " min",
-        
-        resTimeSinEscalarMediana: calcularMediana(s.tiemposNoEscalados).toFixed(2) + " h",
-        resTimeEscaladoMediana: calcularMediana(s.tiemposEscalados).toFixed(2) + " h",
-        
-        // CSAT: Promedio de satisfacción obtenido SOLO en tickets Finalizados
-        csat: s.countFinalizadasConNota > 0 
-          ? (s.sumaSatisfaccionFinalizada / s.countFinalizadasConNota).toFixed(2) 
-          : "0.00",
-          
-        // DSAT: % de notas 1 y 2 sobre el total de Finalizados con Nota
-        dsat: s.countFinalizadasConNota > 0 
-          ? ((s.dsatBajosFinalizados / s.countFinalizadasConNota) * 100).toFixed(2) + "%" 
-          : "0%",
-          
-        // Answer Rate: % de tickets con satisfacción diligenciada sobre el total de Finalizados
-        answerRate: s.countFinalizadasTotales > 0 
-          ? ((s.countFinalizadasConNota / s.countFinalizadasTotales) * 100).toFixed(2) + "%" 
-          : "0%"
-      };
-    });
-
-    setDataByAgent(finalData);
-  };
+  }; // Aquí cierra correctamente la función procesarDatos sin duplicados
 
   const tableStyle = {
     width: "100%", borderCollapse: "collapse", marginBottom: "40px",
