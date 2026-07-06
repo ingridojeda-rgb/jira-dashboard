@@ -6,7 +6,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [currentWeek, setCurrentWeek] = useState("");
 
-  const archivos = ["/Week 29.6.xlsx"];
+  const archivos = ["/Week29.6.xlsx"];
 
   useEffect(() => {
     const cargarUltimaSemana = async () => {
@@ -62,11 +62,12 @@ function App() {
           frTimes: [],
           tiemposEscalados: [],
           tiemposNoEscalados: [],
-          // Métricas de Satisfacción Unificadas
+          
+          // CONTADORES UNIFICADOS BAJO EL FILTRO "FINALIZADA"
           sumaSatisfaccionFinalizada: 0,
-          countFinalizadasConNota: 0,
-          dsatBajos: 0,
-          countFinalizadas: 0
+          countFinalizadasConNota: 0, // Divisor exacto para CSAT y DSAT
+          dsatBajosFinalizados: 0,     // Notas 1 y 2 solo en estado Finalizada
+          countFinalizadasTotales: 0   // Divisor exacto para Answer Rate
         };
       }
 
@@ -84,17 +85,17 @@ function App() {
 
       if (frTimeMin > 0) s.frTimes.push(frTimeMin);
 
-      // --- LÓGICA DE SATISFACCIÓN BLINDADA (Solo "Finalizada") ---
+      // --- FILTRO MAESTRO DE SATISFACCIÓN (SOLO FINALIZADAS) ---
       if (estado === "Finalizada") {
-        s.countFinalizadas += 1; // Base para Answer Rate
+        s.countFinalizadasTotales += 1; // Todos los tickets cerrados (Base Answer Rate)
 
         if (tieneSatisfaction && !isNaN(valorSatisfaction)) {
-          s.countFinalizadasConNota += 1; // Denominador común para CSAT y DSAT
+          s.countFinalizadasConNota += 1; // Tickets cerrados con nota (Base CSAT y DSAT)
           s.sumaSatisfaccionFinalizada += valorSatisfaction;
 
-          // Si la nota es 1 o 2, se cuenta como DSAT
+          // Si el ticket está Finalizado Y la nota es 1 o 2, va para DSAT
           if (valorSatisfaction === 1 || valorSatisfaction === 2) {
-            s.dsatBajos += 1;
+            s.dsatBajosFinalizados += 1;
           }
         }
       }
@@ -112,19 +113,19 @@ function App() {
         resTimeSinEscalarMediana: calcularMediana(s.tiemposNoEscalados).toFixed(2) + " h",
         resTimeEscaladoMediana: calcularMediana(s.tiemposEscalados).toFixed(2) + " h",
         
-        // CSAT: Promedio solo de Finalizadas con nota
+        // CSAT: Promedio de satisfacción obtenido SOLO en tickets Finalizados
         csat: s.countFinalizadasConNota > 0 
           ? (s.sumaSatisfaccionFinalizada / s.countFinalizadasConNota).toFixed(2) 
           : "0.00",
           
-        // DSAT: % de notas 1-2 sobre el mismo grupo de Finalizadas con nota
+        // DSAT: % de notas 1 y 2 sobre el total de Finalizados con Nota
         dsat: s.countFinalizadasConNota > 0 
-          ? ((s.dsatBajos / s.countFinalizadasConNota) * 100).toFixed(2) + "%" 
+          ? ((s.dsatBajosFinalizados / s.countFinalizadasConNota) * 100).toFixed(2) + "%" 
           : "0%",
           
-        // Answer Rate: % de tickets cerrados que fueron calificados
-        answerRate: s.countFinalizadas > 0 
-          ? ((s.countFinalizadasConNota / s.countFinalizadas) * 100).toFixed(2) + "%" 
+        // Answer Rate: % de tickets con satisfacción diligenciada sobre el total de Finalizados
+        answerRate: s.countFinalizadasTotales > 0 
+          ? ((s.countFinalizadasConNota / s.countFinalizadasTotales) * 100).toFixed(2) + "%" 
           : "0%"
       };
     });
