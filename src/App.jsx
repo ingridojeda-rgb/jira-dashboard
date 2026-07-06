@@ -6,7 +6,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [currentWeek, setCurrentWeek] = useState("");
 
-  const archivos = ["/Week29.6.xlsx"];
+  const archivos = ["/Weekk 29.6.xlsx"];
 
   useEffect(() => {
     const cargarUltimaSemana = async () => {
@@ -44,9 +44,14 @@ function App() {
 
     jsonData.forEach(row => {
       const agent = row["Persona asignada"] || "Sin asignar";
-      const estado = (row["Estado"] || "").toString().trim();
-      const esEscalado = row["SD - Escalado"] && row["SD - Escalado"].toString().trim() !== "";
       
+      // Convertimos a minúsculas y eliminamos espacios al inicio/final para evitar errores de tipeo
+      const estadoRaw = (row["Estado"] || "").toString().toLowerCase().trim();
+      
+      // Condición flexible: Captura "Finalizada", "Finalizado", "Finalizada " o variantes
+      const esEstadoFinalizado = estadoRaw.includes("finaliz");
+      
+      const esEscalado = row["SD - Escalado"] && row["SD - Escalado"].toString().trim() !== "";
       const tiempoAbierto = parseFloat(row["Mediana tiempo abierto (hrs)"]) || 0;
       const rawSatisfaction = row["Satisfaction"];
       const tieneSatisfaction = rawSatisfaction !== undefined && rawSatisfaction !== null && rawSatisfaction !== "";
@@ -62,12 +67,10 @@ function App() {
           frTimes: [],
           tiemposEscalados: [],
           tiemposNoEscalados: [],
-          
-          // CONTADORES UNIFICADOS BAJO EL FILTRO "FINALIZADA"
           sumaSatisfaccionFinalizada: 0,
-          countFinalizadasConNota: 0, // Divisor exacto para CSAT y DSAT
-          dsatBajosFinalizados: 0,     // Notas 1 y 2 solo en estado Finalizada
-          countFinalizadasTotales: 0   // Divisor exacto para Answer Rate
+          countFinalizadasConNota: 0, 
+          dsatBajosFinalizados: 0,     
+          countFinalizadasTotales: 0   
         };
       }
 
@@ -75,7 +78,7 @@ function App() {
       s.totalTickets += 1;
 
       if (esEscalado) s.escaladosCount += 1;
-      if (estado === "Declined") s.declinadosCount += 1;
+      if (estadoRaw === "declined") s.declinadosCount += 1;
       
       if (esEscalado) {
         s.tiemposEscalados.push(tiempoAbierto);
@@ -85,21 +88,49 @@ function App() {
 
       if (frTimeMin > 0) s.frTimes.push(frTimeMin);
 
-      // --- FILTRO MAESTRO DE SATISFACCIÓN (SOLO FINALIZADAS) ---
-      if (estado === "Finalizada") {
-        s.countFinalizadasTotales += 1; // Todos los tickets cerrados (Base Answer Rate)
+      // --- FILTRO DE SATISFACCIÓN TOLERANTE ---
+      if (esEstadoFinalizado) {
+        s.countFinalizadasTotales += 1; 
 
         if (tieneSatisfaction && !isNaN(valorSatisfaction)) {
-          s.countFinalizadasConNota += 1; // Tickets cerrados con nota (Base CSAT y DSAT)
+          s.countFinalizadasConNota += 1; 
           s.sumaSatisfaccionFinalizada += valorSatisfaction;
 
-          // Si el ticket está Finalizado Y la nota es 1 o 2, va para DSAT
           if (valorSatisfaction === 1 || valorSatisfaction === 2) {
             s.dsatBajosFinalizados += 1;
           }
         }
       }
     });
+
+    const finalData = Object.values(agentStats).map(s => {
+      const avgFR = s.frTimes.length > 0 ? (s.frTimes.reduce((a,b) => a+b, 0) / s.frTimes.length) : 0;
+      
+      return {
+        name: s.name,
+        porcentajeEscalados: s.totalTickets > 0 ? ((s.escaladosCount / s.totalTickets) * 100).toFixed(2) + "%" : "0%",
+        porcentajeDeclinados: s.totalTickets > 0 ? ((s.declinadosCount / s.totalTickets) * 100).toFixed(2) + "%" : "0%",
+        inicioGestionMin: avgFR.toFixed(2) + " min",
+        
+        resTimeSinEscalarMediana: calcularMediana(s.tiemposNoEscalados).toFixed(2) + " h",
+        resTimeEscaladoMediana: calcularMediana(s.tiemposEscalados).toFixed(2) + " h",
+        
+        csat: s.countFinalizadasConNota > 0 
+          ? (s.sumaSatisfaccionFinalizada / s.countFinalizadasConNota).toFixed(2) 
+          : "0.00",
+          
+        dsat: s.countFinalizadasConNota > 0 
+          ? ((s.dsatBajosFinalizados / s.countFinalizadasConNota) * 100).toFixed(2) + "%" 
+          : "0%",
+          
+        answerRate: s.countFinalizadasTotales > 0 
+          ? ((s.countFinalizadasConNota / s.countFinalizadasTotales) * 100).toFixed(2) + "%" 
+          : "0%"
+      };
+    });
+
+    setDataByAgent(finalData);
+  };
 
     const finalData = Object.values(agentStats).map(s => {
       const avgFR = s.frTimes.length > 0 ? (s.frTimes.reduce((a,b) => a+b, 0) / s.frTimes.length) : 0;
