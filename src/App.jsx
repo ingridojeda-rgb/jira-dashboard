@@ -6,7 +6,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [currentWeek, setCurrentWeek] = useState("");
 
-  const archivos = ["/Weekk 29.6.xlsx"];
+  const archivos = ["/Week 6.7.xlsx"];
 
   useEffect(() => {
     const cargarUltimaSemana = async () => {
