@@ -29,8 +29,8 @@ function App() {
           fetch(`${connectFile}?v=${new Date().getTime()}`)
         ]);
 
-        if (!resWeek.ok) console.error("Error al cargar Week 29.6.xlsx:", resWeek.statusText);
-        if (!resConnect.ok) console.error("Error al cargar Connect 29.6.xlsx:", resConnect.statusText);
+        if (!resWeek.ok) console.error("Error al cargar Week file:", resWeek.statusText);
+        if (!resConnect.ok) console.error("Error al cargar Connect file:", resConnect.statusText);
 
         const bufferWeek = await resWeek.arrayBuffer();
         const bufferConnect = await resConnect.arrayBuffer();
@@ -130,7 +130,6 @@ function App() {
     });
 
     const finalData = Object.values(agentStats).map(s => {
-      // AHORA USA LA MEDIANA EN LUGAR DEL PROMEDIO
       const medianaFR = calcularMediana(s.frTimes);
       
       return {
@@ -156,11 +155,22 @@ function App() {
     jsonData.forEach(row => {
       const agent = (row["FRT_BY"] || "Sin asignar").toString().trim();
       
+      // Validación SD Estado de Cierre
+      const rawEstadoCierre = row["SD Estado de Cierre"] || row["SD - Estado de Cierre"] || row["SD_ESTADO_DE_CIERRE"] || "";
+      const esEstadoFinalizado = rawEstadoCierre.toString().toLowerCase().trim().includes("finaliz");
+
+      // Validación SD Escalado (debe estar vacío)
+      const rawEscalado = row["SD Escalado"] || row["SD - Escalado"] || row["SD_ESCALADO"];
+      const esNoEscalado = rawEscalado === undefined || rawEscalado === null || rawEscalado.toString().trim() === "";
+
+      // Lectura de CSAT
       const rawCsat = row["CSAT"];
+      const tieneCsat = rawCsat !== undefined && rawCsat !== null && rawCsat.toString().trim() !== "";
+      const valorCsat = parseNumero(rawCsat);
+
+      // Métricas de tiempos
       const rawFrt = row["FIRST_RESPONSE_TIME_MIN"];
       const rawRes = row["RESOLUTION_TIME_MIN"];
-
-      const valorCsat = parseNumero(rawCsat);
       const valorFrt = parseNumero(rawFrt);
       const valorRes = parseNumero(rawRes);
 
@@ -168,8 +178,10 @@ function App() {
         agentStats[agent] = {
           name: agent,
           inflow: 0,
-          sumaCsat: 0,
-          countCsat: 0,
+          sumaCsatValidos: 0,
+          countCsatValidos: 0,
+          countDsatValidos: 0, // Calificaciones 1 o 2
+          countTicketsValidosParaCsat: 0, // Finalizado + No Escalado
           sumaFrt: 0,
           countFrt: 0,
           sumaRes: 0,
@@ -180,11 +192,21 @@ function App() {
       const s = agentStats[agent];
       s.inflow += 1;
 
-      if (rawCsat !== undefined && rawCsat !== null && rawCsat !== "") {
-        s.sumaCsat += valorCsat;
-        s.countCsat += 1;
+      // Evaluar condición: Estado de cierre "Finalizado" AND Escalado "Vacío"
+      if (esEstadoFinalizado && esNoEscalado) {
+        s.countTicketsValidosParaCsat += 1;
+
+        if (tieneCsat) {
+          s.countCsatValidos += 1;
+          s.sumaCsatValidos += valorCsat;
+
+          if (valorCsat === 1 || valorCsat === 2) {
+            s.countDsatValidos += 1;
+          }
+        }
       }
 
+      // Tiempos generales de respuesta y resolución
       if (rawFrt !== undefined && rawFrt !== null && rawFrt !== "") {
         s.sumaFrt += valorFrt;
         s.countFrt += 1;
@@ -199,7 +221,9 @@ function App() {
     const finalData = Object.values(agentStats).map(s => ({
       name: s.name,
       inflow: s.inflow,
-      satisfaccion: s.countCsat > 0 ? (s.sumaCsat / s.countCsat).toFixed(2) : "0.00",
+      csat: s.countCsatValidos > 0 ? (s.sumaCsatValidos / s.countCsatValidos).toFixed(2) : "0.00",
+      dsat: s.countCsatValidos > 0 ? ((s.countDsatValidos / s.countCsatValidos) * 100).toFixed(2) + "%" : "0%",
+      answerRate: s.countTicketsValidosParaCsat > 0 ? ((s.countCsatValidos / s.countTicketsValidosParaCsat) * 100).toFixed(2) + "%" : "0%",
       primeraRespuesta: s.countFrt > 0 ? (s.sumaFrt / s.countFrt).toFixed(2) + " min" : "0.00 min",
       resolutionTime: s.countRes > 0 ? (s.sumaRes / s.countRes).toFixed(2) + " min" : "0.00 min"
     }));
@@ -290,7 +314,9 @@ function App() {
             <tr>
               <th style={thStyle}>Agente (FRT_BY)</th>
               <th style={thStyle}>INFLOW</th>
-              <th style={thStyle}>SATISFACCIÓN</th>
+              <th style={thStyle}>CSAT</th>
+              <th style={thStyle}>DSAT</th>
+              <th style={thStyle}>ANSWER RATE</th>
               <th style={thStyle}>PRIMERA RESPUESTA</th>
               <th style={thStyle}>RESOLUTION TIME</th>
             </tr>
@@ -300,7 +326,9 @@ function App() {
               <tr key={i} style={{ backgroundColor: i % 2 === 0 ? "#ffffff" : "#f8fafc" }}>
                 <td style={{ ...tdStyle, fontWeight: "bold" }}>{agent.name}</td>
                 <td style={tdStyle}>{agent.inflow}</td>
-                <td style={tdStyle}>{agent.satisfaccion}</td>
+                <td style={tdStyle}>{agent.csat}</td>
+                <td style={tdStyle}>{agent.dsat}</td>
+                <td style={tdStyle}>{agent.answerRate}</td>
                 <td style={tdStyle}>{agent.primeraRespuesta}</td>
                 <td style={tdStyle}>{agent.resolutionTime}</td>
               </tr>
