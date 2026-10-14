@@ -1,6 +1,3 @@
-Aquí tienes el código completo y actualizado para tu archivo App.jsx, con la lógica corregida para los campos exactos de tu archivo de Connect (FRT_BY, SD_ESTADO_CIERRE, SD_ESCALADO, CSAT, etc.) e ignorando completamente los campos ZS:
-
-JavaScript
 import { useEffect, useState } from "react";
 import * as XLSX from "xlsx";
 
@@ -17,7 +14,8 @@ function App() {
   const parseNumero = (val) => {
     if (val === undefined || val === null || val === "") return 0;
     if (typeof val === "number") return val;
-    const limpio = val.toString().replace(",", ".").trim();
+    // Reemplaza comas, espacios invisibles y limpia texto
+    const limpio = val.toString().replace(/\u00a0/g, " ").replace(",", ".").trim();
     const num = parseFloat(limpio);
     return isNaN(num) ? 0 : num;
   };
@@ -44,10 +42,18 @@ function App() {
         const jsonWeek = XLSX.utils.sheet_to_json(sheetWeek);
         procesarDatosJira(jsonWeek);
 
-        // Lectura Connect
+        // Lectura Connect (Busca la primera hoja que contenga datos)
         const wbConnect = XLSX.read(bufferConnect);
-        const sheetConnect = wbConnect.Sheets[wbConnect.SheetNames[0]];
-        const jsonConnect = XLSX.utils.sheet_to_json(sheetConnect);
+        let jsonConnect = [];
+        for (const sheetName of wbConnect.SheetNames) {
+          const sheet = wbConnect.Sheets[sheetName];
+          const data = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+          if (data.length > 0) {
+            jsonConnect = data;
+            break;
+          }
+        }
+
         procesarDatosConnect(jsonConnect);
 
       } catch (error) {
@@ -151,28 +157,35 @@ function App() {
     setDataByAgentJira(finalData);
   };
 
-  // --- LÓGICA DE CONNECT ---
+  // --- LÓGICA DE CONNECT (BLINDADA) ---
   const procesarDatosConnect = (jsonData) => {
     const agentStats = {};
 
     jsonData.forEach(row => {
-      // 1. Agente
+      // Agente
       const agent = (row["FRT_BY"] || "Sin asignar").toString().trim();
 
-      // 2. SD_ESTADO_CIERRE (Ignorando ZS_ESTADO_CIERRE)
-      const rawEstadoCierre = (row["SD_ESTADO_CIERRE"] || "").toString().toLowerCase().trim();
+      // SD_ESTADO_CIERRE
+      const rawEstadoCierre = (row["SD_ESTADO_CIERRE"] || "").toString().replace(/\u00a0/g, " ").toLowerCase().trim();
       const esEstadoFinalizado = rawEstadoCierre.includes("finaliz");
 
-      // 3. SD_ESCALADO (Debe estar completamente vacío)
-      const rawEscalado = row["SD_ESCALADO"];
-      const esNoEscalado = rawEscalado === undefined || rawEscalado === null || rawEscalado.toString().trim() === "";
+      // SD_ESCALADO: Considera vacíos, null, undefined, "no", "false", "0", "n/a"
+      const rawEscaladoStr = (row["SD_ESCALADO"] || "").toString().replace(/\u00a0/g, " ").toLowerCase().trim();
+      const esNoEscalado = 
+        rawEscaladoStr === "" || 
+        rawEscaladoStr === "no" || 
+        rawEscaladoStr === "false" || 
+        rawEscaladoStr === "0" || 
+        rawEscaladoStr === "n/a" || 
+        rawEscaladoStr === "ninguno";
 
-      // 4. CSAT
+      // CSAT
       const rawCsat = row["CSAT"];
-      const tieneCsat = rawCsat !== undefined && rawCsat !== null && rawCsat.toString().trim() !== "";
+      const strCsat = (rawCsat !== undefined && rawCsat !== null) ? rawCsat.toString().trim() : "";
+      const tieneCsat = strCsat !== "" && strCsat !== "0";
       const valorCsat = parseNumero(rawCsat);
 
-      // 5. Tiempos generales
+      // Tiempos
       const rawFrt = row["FIRST_RESPONSE_TIME_MIN"];
       const rawRes = row["RESOLUTION_TIME_MIN"];
       const valorFrt = parseNumero(rawFrt);
@@ -184,8 +197,8 @@ function App() {
           inflow: 0,
           sumaCsatValidos: 0,
           countCsatValidos: 0,
-          countDsatValidos: 0,            // Calificaciones 1 o 2
-          countTicketsValidosParaCsat: 0, // Tickets con SD_ESTADO_CIERRE Finalizado y SD_ESCALADO vacío
+          countDsatValidos: 0,
+          countTicketsValidosParaCsat: 0,
           sumaFrt: 0,
           countFrt: 0,
           sumaRes: 0,
@@ -196,7 +209,7 @@ function App() {
       const s = agentStats[agent];
       s.inflow += 1;
 
-      // Filtro principal: SD_ESTADO_CIERRE "Finalizado" AND SD_ESCALADO "Vacío"
+      // Evaluar la regla
       if (esEstadoFinalizado && esNoEscalado) {
         s.countTicketsValidosParaCsat += 1;
 
@@ -210,7 +223,6 @@ function App() {
         }
       }
 
-      // Conteo de tiempos
       if (rawFrt !== undefined && rawFrt !== null && rawFrt !== "") {
         s.sumaFrt += valorFrt;
         s.countFrt += 1;
@@ -225,11 +237,8 @@ function App() {
     const finalData = Object.values(agentStats).map(s => ({
       name: s.name,
       inflow: s.inflow,
-      // CSAT: Promedio de calificaciones válidas
       csat: s.countCsatValidos > 0 ? (s.sumaCsatValidos / s.countCsatValidos).toFixed(2) : "0.00",
-      // DSAT %: (Notas 1 y 2 / Total calificadas válidas) * 100
       dsat: s.countCsatValidos > 0 ? ((s.countDsatValidos / s.countCsatValidos) * 100).toFixed(2) + "%" : "0%",
-      // Answer Rate %: (Total calificadas válidas / Total tickets válidos) * 100
       answerRate: s.countTicketsValidosParaCsat > 0 ? ((s.countCsatValidos / s.countTicketsValidosParaCsat) * 100).toFixed(2) + "%" : "0%",
       primeraRespuesta: s.countFrt > 0 ? (s.sumaFrt / s.countFrt).toFixed(2) + " min" : "0.00 min",
       resolutionTime: s.countRes > 0 ? (s.sumaRes / s.countRes).toFixed(2) + " min" : "0.00 min"
