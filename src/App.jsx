@@ -7,8 +7,8 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [currentWeek, setCurrentWeek] = useState("");
 
-  const weekFile = "/Jira 5.10.xlsx";
-  const connectFile = "/Connect 5.10.xlsx";
+  const weekFile = "/Jira 12.10.xlsx";
+  const connectFile = "/Connect 12.10.xlsx";
 
   // Helper para convertir cualquier número (con punto o coma) de forma segura
   const parseNumero = (val) => {
